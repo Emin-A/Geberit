@@ -81,6 +81,7 @@ from System.Windows.Forms import (
 )
 from System.Drawing import Image, Point, Color, Rectangle, Size
 from System.IO import MemoryStream
+from System.Windows.Forms import DataGridViewButtonColumn
 from System import Array
 import math, re, sys
 
@@ -318,6 +319,7 @@ class ElementEditorForm(Form):
         self.dataGrid.Location = Point(10, 10)
         self.dataGrid.Size = Size(900, 350)
         self.dataGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
+        self.dataGrid.CellContentClick += self.dataGrid_CellContentClick
         self.Controls.Add(self.dataGrid)
 
         # Columns
@@ -357,12 +359,49 @@ class ElementEditorForm(Form):
         self.colSize.Name = "Size"
         self.colSize.HeaderText = "Size"
         self.colSize.ReadOnly = True
-        from System.Windows.Forms import DataGridViewButtonColumn
 
         self.colTagStatus = DataGridViewButtonColumn()
         self.colTagStatus.Name = "TagStatus"
         self.colTagStatus.HeaderText = "Tags"
         self.colTagStatus.UseColumnTextForButtonValue = False
+
+        # Place Text Note
+        self.btnPlaceTextNote = Button()
+        self.btnPlaceTextNote.Text = "Place Text Note"
+        self.btnPlaceTextNote.Location = Point(10, 370)
+        self.btnPlaceTextNote.Width = 150
+        self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
+        self.Controls.Add(self.btnPlaceTextNote)
+
+        self.txtTextNoteCode = TextBox()
+        self.txtTextNoteCode.Location = Point(170, 370)
+        self.txtTextNoteCode.Width = 150
+        self.Controls.Add(self.txtTextNoteCode)
+
+        # Auto‑fill
+        self.btnAutoFill = Button()
+        self.btnAutoFill.Text = "Auto-fill Pipe Tag Codes"
+        self.btnAutoFill.Location = Point(10, 410)
+        self.btnAutoFill.Width = 200
+        self.btnAutoFill.Click += self.autoFillPipeTagCodes
+        self.Controls.Add(self.btnAutoFill)
+
+        # OK / Cancel
+        self.btnOK = Button()
+        self.btnOK.Text = "OK"
+        self.btnOK.Location = Point(600, 420)
+        self.btnOK.DialogResult = DialogResult.OK
+        self.btnOK.Click += self.okButton_Click
+        self.Controls.Add(self.btnOK)
+
+        self.btnCancel = Button()
+        self.btnCancel.Text = "Cancel"
+        self.btnCancel.Location = Point(720, 420)
+        self.btnCancel.DialogResult = DialogResult.Cancel
+        self.Controls.Add(self.btnCancel)
+
+        self.textNotePlaced = False
+        self.Result = None
 
         # Add columns
         self.dataGrid.Columns.AddRange(
@@ -422,45 +461,14 @@ class ElementEditorForm(Form):
             elif ed["Category"] == "Text Notes":
                 row.DefaultCellStyle.BackColor = Color.LightGray
 
-        self.dataGrid.CellContentClick += self.dataGrid_CellContentClick
-
-        # Place Text Note
-        self.btnPlaceTextNote = Button()
-        self.btnPlaceTextNote.Text = "Place Text Note"
-        self.btnPlaceTextNote.Location = Point(10, 370)
-        self.btnPlaceTextNote.Width = 150
-        self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
-        self.Controls.Add(self.btnPlaceTextNote)
-
-        self.txtTextNoteCode = TextBox()
-        self.txtTextNoteCode.Location = Point(170, 370)
-        self.txtTextNoteCode.Width = 150
-        self.Controls.Add(self.txtTextNoteCode)
-
-        # Auto‑fill
-        self.btnAutoFill = Button()
-        self.btnAutoFill.Text = "Auto-fill Pipe Tag Codes"
-        self.btnAutoFill.Location = Point(10, 410)
-        self.btnAutoFill.Width = 200
-        self.btnAutoFill.Click += self.autoFillPipeTagCodes
-        self.Controls.Add(self.btnAutoFill)
-
-        # OK / Cancel
-        self.btnOK = Button()
-        self.btnOK.Text = "OK"
-        self.btnOK.Location = Point(600, 420)
-        self.btnOK.DialogResult = DialogResult.OK
-        self.btnOK.Click += self.okButton_Click
-        self.Controls.Add(self.btnOK)
-
-        self.btnCancel = Button()
-        self.btnCancel.Text = "Cancel"
-        self.btnCancel.Location = Point(720, 420)
-        self.btnCancel.DialogResult = DialogResult.Cancel
-        self.Controls.Add(self.btnCancel)
-
-        self.textNotePlaced = False
-        self.Result = None
+    def _add_row(self, data):
+        """Helper to append a new DataGridView row from a dict."""
+        idx = self.dataGrid.Rows.Add()
+        row = self.dataGrid.Rows[idx]
+        for k, v in data.items():
+            row.Cells[k].Value = v
+        # keep the new tag’s button column read-only
+        row.Cells["TagStatus"].ReadOnly = True
 
     def btnPlaceTextNote_Click(self, sender, event):
         text_note_code = self.txtTextNoteCode.Text.strip()
@@ -594,19 +602,19 @@ class ElementEditorForm(Form):
 
         # --- ADD/REMOVE ON PIPES & FITTINGS ---
         if cat in ("Pipes", "Pipe Fittings"):
-            elem_id = ElementId(int(str(row.Cells["Id"].Value)))
-            host = doc.GetElement(elem_id)
+            host_id = int(str(row.Cells["Id"].Value))
+            host = doc.GetElement(ElementId(host_id))
 
             # --- ADD TAG ---
             if val == "Add/Place Tag":
                 tr = Transaction(doc, "Add Tag")
                 tr.Start()
-                bbox = host.get_BoundingBox(uidoc.ActiveView)
-                if bbox:
-                    center = XYZ(
-                        (bbox.Min.X + bbox.Max.X) / 2.0,
-                        (bbox.Min.Y + bbox.Max.Y) / 2.0,
-                        (bbox.Min.Z + bbox.Max.Z) / 2.0,
+                bb = host.get_BoundingBox(uidoc.ActiveView)
+                if bb:
+                    ctr = XYZ(
+                        (bb.Min.X + bb.Max.X) / 2.0,
+                        (bb.Min.Y + bb.Max.Y) / 2.0,
+                        (bb.Min.Z + bb.Max.Z) / 2.0,
                     )
                     ref = Reference(host)
                     new_tag = IndependentTag.Create(
@@ -616,7 +624,7 @@ class ElementEditorForm(Form):
                         True,
                         TagMode.TM_ADDBY_CATEGORY,
                         TagOrientation.Horizontal,
-                        center,
+                        ctr,
                     )
                 tr.Commit()
 
@@ -624,68 +632,65 @@ class ElementEditorForm(Form):
                 row.Cells["TagStatus"].Value = "Remove Tag"
 
                 # add the new‐tag row here
-                tag_elem = doc.GetElement(new_tag.Id)
-                if tag_elem:
-                    tag_dict = {
-                        "Id": str(tag_elem.Id),
+                te = doc.GetElement(new_tag.Id)
+                if te:
+                    data = {
+                        "Id": str(te.Id),
                         "Category": "Pipe Tags",
-                        "Name": tag_elem.Name or "",
+                        "Name": te.Name or "",
                         "DefaultCode": host.LookupParameter("Comments").AsString()
                         or "",
                         "NewCode": row.Cells["NewCode"].Value,
                         "OutsideDiameter": row.Cells["OutsideDiameter"].Value,
                         "Length": row.Cells["Length"].Value,
+                        "Size": "",
+                        "GEB_Article_Number": "",
                         "TagStatus": "Yes",
                     }
-                    idx = self.dataGrid.Rows.Add()
-                    new_row = self.dataGrid.Rows[idx]
-                    for k, v in tag_dict.items():
-                        new_row.Cells[k].Value = v
-                    new_row.Cells["TagStatus"].ReadOnly = True
-
+                    self._add_row(data)
                 return
 
             # --- REMOVE TAG ---
             if val == "Remove Tag":
-                removed = False
-                tags = (
+                deleted_id = None
+                for t in (
                     FilteredElementCollector(doc)
                     .OfCategory(BuiltInCategory.OST_PipeTags)
                     .WhereElementIsNotElementType()
                     .ToElements()
-                )
-                for t in tags:
-                    # get the list of hosts
-                    if hasattr(t, "GetTaggedElementIds"):
-                        tag_ids = t.GetTaggedElementIds()
-                    else:
-                        tag_ids = [t.TaggedElementId]
-                    for rid in tag_ids:
-                        host_id = getattr(rid, "HostElementId", rid).IntegerValue
-                        if host_id == host.Id.IntegerValue:
-                            # delete from model
+                ):
+                    # unwrap LinkElementId if present
+                    tagged = (
+                        t.GetTaggedElementIds()
+                        if hasattr(t, "GetTaggedElementIds")
+                        else [t.TaggedElementId]
+                    )
+                    for rid in tagged:
+                        host_eid = (
+                            rid.ElementId.IntegerValue
+                            if hasattr(rid, "ElementId")
+                            else rid.IntegerValue
+                        )
+                        if host_eid == host.Id.IntegerValue:
                             tr = Transaction(doc, "Remove Tag")
                             tr.Start()
                             doc.Delete(t.Id)
                             tr.Commit()
-                            removed = True
+                            deleted_id = t.Id.IntegerValue
                             break
-                    if removed:
-                        deleted_tag_id = t.Id.IntegerValue
+                    if deleted_id:
                         break
 
-                # now remove its row from the grid
-                if removed:
+                if deleted_id:
+                    # delete its row from the grid
                     for i in range(self.dataGrid.Rows.Count):
                         r = self.dataGrid.Rows[i]
                         if (
                             r.Cells["Category"].Value == "Pipe Tags"
-                            and int(str(r.Cells["Id"].Value)) == deleted_tag_id
+                            and int(str(r.Cells["Id"].Value)) == deleted_id
                         ):
                             self.dataGrid.Rows.RemoveAt(i)
                             break
-
-                # flip the host’s button back
                 row.Cells["TagStatus"].Value = "Add/Place Tag"
                 return
 
