@@ -1185,7 +1185,7 @@ if title_block:
         try:
             sheet = ViewSheet.Create(doc, title_block.Id)
             sheet.SheetNumber = base
-            sheet.Name = "Cutout " + base
+            sheet.Name = raw_text_note
             t.Commit()
         except Exception as ex:
             t.RollBack()
