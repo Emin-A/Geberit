@@ -468,6 +468,7 @@ class ElementEditorForm(Form):
         for k, v in data.items():
             row.Cells[k].Value = v
         # keep the new tag’s button column read-only
+        row.Cells["TagStatus"].Value = "Remove Tag"
         row.Cells["TagStatus"].ReadOnly = True
 
     def btnPlaceTextNote_Click(self, sender, event):
@@ -651,8 +652,11 @@ class ElementEditorForm(Form):
                 return
 
             # --- REMOVE TAG ---
-            if val == "Remove Tag":
+            if cat in ("Pipes", "Pipe Fittings") and val == "Remove Tag":
+                host_id = int(str(row.Cells["Id"].Value))
                 deleted_id = None
+
+                # find the matching tag element
                 for t in (
                     FilteredElementCollector(doc)
                     .OfCategory(BuiltInCategory.OST_PipeTags)
@@ -666,43 +670,91 @@ class ElementEditorForm(Form):
                         else [t.TaggedElementId]
                     )
                     for rid in tagged:
-                        host_eid = (
-                            rid.ElementId.IntegerValue
-                            if hasattr(rid, "ElementId")
+                        # New: handle LinkElementId vs plain ElementId
+                        eid = (
+                            rid.HostElementId.IntegerValue
+                            if hasattr(rid, "HostElementId")
                             else rid.IntegerValue
                         )
-                        if host_eid == host.Id.IntegerValue:
-                            tr = Transaction(doc, "Remove Tag")
-                            tr.Start()
-                            doc.Delete(t.Id)
-                            tr.Commit()
+                        if eid == host_eid:
                             deleted_id = t.Id.IntegerValue
+                            tag_elem_id = t.Id
                             break
                     if deleted_id:
                         break
 
                 if deleted_id:
-                    # delete its row from the grid
+                    # unsubscribe row-selection highlight
+                    self.dataGrid.SelectionChanged -= self.on_row_selected
+                    # delete the tag in Revit
+                    tr = Transaction(doc, "Remove Tag")
+                    tr.Start()
+                    doc.Delete(tag_elem_id)
+                    tr.Commit()
+                    # flip the host's button back to Add/Place
+                    row.Cells["TagStatus"].Value = "Add/Place Tag"
+                    row.Cells["TagStatus"].ReadOnly = False
+                    # remove its Pipe-Tags row
                     for i in range(self.dataGrid.Rows.Count):
-                        r = self.dataGrid.Rows[i]
+                        r2 = self.dataGrid.Rows[i]
                         if (
-                            r.Cells["Category"].Value == "Pipe Tags"
-                            and int(str(r.Cells["Id"].Value)) == deleted_id
+                            r2.Cells["Category"].Value == "Pipe Tags"
+                            and int(str(r2.Cells["Id"].Value)) == deleted_id
                         ):
                             self.dataGrid.Rows.RemoveAt(i)
                             break
-                row.Cells["TagStatus"].Value = "Add/Place Tag"
+                    self.dataGrid.SelectionChanged += self.on_row_selected
                 return
 
         # --- REMOVE AN ORPHAN PIPE-TAG ROW ---
         if cat == "Pipe Tags" and val == "Remove Tag":
+            # Figure out who the host pipe was (while the tag still exists)
             tag_id = ElementId(int(str(row.Cells["Id"].Value)))
-            tr = Transaction(doc, "Remove Pipe-Tag")
-            tr.Start()
-            doc.Delete(tag_id)
-            tr.Commit()
+            self.dataGrid.SelectionChanged -= self.on_row_selected
+            try:
+                tag_elem = doc.GetElement(tag_id)
+                host_id = None
+                if tag_elem:
+                    if hasattr(tag_elem, "GetTaggedElementIds"):
+                        ids = tag_elem.GetTaggedElementIds()
+                        if ids and ids.Count:
+                            # if this is a LinkedElementId, use its HostElementId
+                            rid = ids[0]
+                            host_id = (
+                                rid.HostElementId.IntegerValue
+                                if hasattr(rid, "HostElementId")
+                                else rid.IntegerValue
+                            )
+                    elif hasattr(tag_elem, "TaggedElementId"):
+                        rid = tag_elem.TaggedElementId
+                        host_id = (
+                            rid.HostElementId.IntegerValue
+                            if hasattr(rid, "HostElementId")
+                            else rid.IntegerValue
+                        )
 
-            self.dataGrid.Rows.RemoveAt(e.RowIndex)
+                # Delete the Tag
+                tr = Transaction(doc, "Remove Pipe-Tag")
+                tr.Start()
+                doc.Delete(tag_id)
+                tr.Commit()
+
+                # Remove the tags row
+                self.dataGrid.Rows.RemoveAt(e.RowIndex)
+
+                # Now find the pipe's row and flip it back to "Add/Place Tag"
+                if host_id:
+                    for i in range(self.dataGrid.Rows.Count):
+                        pr = self.dataGrid.Rows[i]
+                        if int(str(pr.Cells["Id"].Value)) == host_id and pr.Cells[
+                            "Category"
+                        ].Value in ("Pipes", "Pipe Fittings"):
+                            pr.Cells["TagStatus"].Value = "Add/Place Tag"
+                            pr.Cells["TagStatus"].ReadOnly = False
+                            break
+            finally:
+                # rehook highlight
+                self.dataGrid.SelectionChanged += self.on_row_selected
             return
 
         # --- PIPE FITTINGS ---
@@ -788,18 +840,13 @@ class ElementEditorForm(Form):
 
         # try to parse and highlight, but swallow any invalid-object errors
         try:
-            eid_int = int(str(id_val))
+            eid = ElementId(int(str(id_val)))
+            elem = doc.GetElement(eid)
+            # guard against deleted/invalid elements
+            if elem and elem.IsValidObject:
+                uidoc.Selection.SetElementIds(List[ElementId]([eid]))
         except:
             return
-
-        try:
-            elem = doc.GetElement(ElementId(eid_int))
-            # if the element was deleted, GetElement will return None or throw
-            if elem:
-                uidoc.Selection.SetElementIds(List[ElementId]([ElementId(eid_int)]))
-        except Exception:
-            # if Revit says “referenced object is not valid” just ignore it
-            pass
 
 
 def show_element_editor(elements_data, region_elements=None):
