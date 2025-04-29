@@ -47,6 +47,7 @@ from Autodesk.Revit.DB import (
     TagOrientation,
     ViewSheet,
     ViewDuplicateOption,
+    ViewDiscipline,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.UI import UIDocument
@@ -1112,15 +1113,21 @@ if orig.ViewType != ViewType.FloorPlan:
 
 tx = Transaction(doc, "Create Cropped Plan View")
 tx.Start()
-new_id = orig.Duplicate(ViewDuplicateOption.AsDependent)
+new_id = orig.Duplicate(ViewDuplicateOption.Duplicate)
 new_view = doc.GetElement(new_id)
-m = re.search(r"([\d\.]+)", result["TextNote"])
-new_name = m.group(1) if m else result["TextNote"].strip()  # "5.1.1"
-new_view.Name = new_name
 
-dparam = new_view.get_Parameter(BuiltInParameter.VIEW_DISCIPLINE)
-if dparam and not dparam.IsReadOnly:
-    dparam.Set(3)
+# remove any view template and set scale to 1:25
+new_view.ViewTemplateId = ElementId.InvalidElementId
+
+# force it to Coordination
+new_view.Discipline = ViewDiscipline.Coordination
+
+new_view.Scale = 25
+
+# naming, cropping, discipline etc...
+m = re.search(r"([\d\.]+)", result["TextNote"])
+base = m.group(1) if m else result["TextNote"].strip()  # "5.1.1"
+new_view.Name = base
 
 new_view.CropBoxActive = True
 new_view.CropBoxVisible = True
@@ -1192,14 +1199,14 @@ title_block = all_tbs[picker.lb.SelectedIndex]
 # ————————————————————————————————
 
 # b) for each base, only create if it’s not already on a sheet
-for base in {new_name}:  # e.g. 5.1.1
+for base in {base}:  # e.g. 5.1.1
     if base in existing_numbers:
         continue
     t = Transaction(doc, "Create Sheet " + base)
     t.Start()
     sheet = ViewSheet.Create(doc, title_block.Id)
     sheet.SheetNumber = base
-    sheet.Name = new_name
+    sheet.Name = "prefab " + base
 
     o = sheet.Outline
     center = XYZ((o.Min.U + o.Max.U) / 2, (o.Min.V + o.Max.V) / 2, 0)
