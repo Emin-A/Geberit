@@ -30,6 +30,7 @@ Author: Emin Avdovic"""
 # ==================================================
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB import (
+    FamilySymbol,
     FilteredElementCollector,
     BuiltInCategory,
     BuiltInParameter,
@@ -45,6 +46,7 @@ from Autodesk.Revit.DB import (
     TagMode,
     TagOrientation,
     ViewSheet,
+    ViewDuplicateOption,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.UI import UIDocument
@@ -1101,6 +1103,33 @@ if not result.get("TextNotePlaced", False):
         )
     ttn.Commit()
 
+region_min, region_max = get_region_bounding_box(gathered_elements)
+
+orig = uidoc.ActiveView
+if orig.ViewType != ViewType.FloorPlan:
+    MessageBox.Show("Active view is not a Floor Plan!", "Error")
+    sys.exit()
+
+tx = Transaction(doc, "Create Cropped Plan View")
+tx.Start()
+new_id = orig.Duplicate(ViewDuplicateOption.AsDependent)
+new_view = doc.GetElement(new_id)
+m = re.search(r"([\d\.]+)", result["TextNote"])
+new_name = m.group(1) if m else result["TextNote"].strip()  # "5.1.1"
+new_view.Name = new_name
+
+dparam = new_view.get_Parameter(BuiltInParameter.VIEW_DISCIPLINE)
+if dparam and not dparam.IsReadOnly:
+    dparam.Set(3)
+
+new_view.CropBoxActive = True
+new_view.CropBoxVisible = True
+bb = BoundingBoxXYZ()
+bb.Min = region_min
+bb.Max = region_max
+new_view.CropBox = bb
+
+tx.Commit()
 
 # -----------------------------------------
 # 2) SHOW TITLE-BLOCK PICKER, THEN CREATE SHEET
@@ -1147,46 +1176,33 @@ class TBPicker(Form):
         self.CancelButton = ca
 
 
+existing_sheets = FilteredElementCollector(doc).OfClass(ViewSheet).ToElements()
+existing_numbers = {s.SheetNumber for s in existing_sheets}
+
 # show the picker
 picker = TBPicker(all_tbs)
-if picker.ShowDialog() == DialogResult.OK and picker.lb.SelectedIndex >= 0:
-    title_block = all_tbs[picker.lb.SelectedIndex]
-else:
+if picker.ShowDialog() != DialogResult.OK or picker.lb.SelectedIndex < 0:
     MessageBox.Show("Sheet creation cancelled.", "Info")
-    title_block = None
+    sys.exit()
 
-
-raw_text_note = result.get("TextNote", "")
-m = re.search(r"([\d\.]+)", raw_text_note)
-if m:
-    cutout_bases = {m.group(1)}  # e.g. {"5.1.1"}
-else:
-    cutout_bases = set()
+title_block = all_tbs[picker.lb.SelectedIndex]
 
 # ————————————————————————————————
 # 3) Create A3 sheets, skipping duplicates
 # ————————————————————————————————
-if title_block:
-    # a) find any sheets that already exist
-    existing_sheets = FilteredElementCollector(doc).OfClass(ViewSheet).ToElements()
-    existing_numbers = {s.SheetNumber for s in existing_sheets}
 
-    # b) for each base, only create if it’s not already on a sheet
-    for base in cutout_bases:
-        if base in existing_numbers:
-            MessageBox.Show(
-                "A sheet for cutout {0} already exists. Skipping.".format(base),
-                "Duplicate Sheet",
-            )
-            continue
+# b) for each base, only create if it’s not already on a sheet
+for base in {new_name}:  # e.g. 5.1.1
+    if base in existing_numbers:
+        continue
+    t = Transaction(doc, "Create Sheet " + base)
+    t.Start()
+    sheet = ViewSheet.Create(doc, title_block.Id)
+    sheet.SheetNumber = base
+    sheet.Name = new_name
 
-        t = Transaction(doc, "Create Sheet " + base)
-        t.Start()
-        try:
-            sheet = ViewSheet.Create(doc, title_block.Id)
-            sheet.SheetNumber = base
-            sheet.Name = raw_text_note
-            t.Commit()
-        except Exception as ex:
-            t.RollBack()
-            MessageBox.Show("Failed to create sheet {0}: {1}".format(base, ex), "Error")
+    o = sheet.Outline
+    center = XYZ((o.Min.U + o.Max.U) / 2, (o.Min.V + o.Max.V) / 2, 0)
+    Viewport.Create(doc, sheet.Id, new_view.Id, center)
+
+    t.Commit()
