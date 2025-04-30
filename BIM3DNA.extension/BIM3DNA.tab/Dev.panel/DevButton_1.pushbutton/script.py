@@ -1202,14 +1202,65 @@ title_block = all_tbs[picker.lb.SelectedIndex]
 for base in {base}:  # e.g. 5.1.1
     if base in existing_numbers:
         continue
-    t = Transaction(doc, "Create Sheet " + base)
-    t.Start()
+    t3 = Transaction(doc, "Create 3D callout")
+    t3.Start()
     sheet = ViewSheet.Create(doc, title_block.Id)
     sheet.SheetNumber = base
-    sheet.Name = "prefab " + base
+    sheet.Name = "Prefab " + base
 
     o = sheet.Outline
     center = XYZ((o.Min.U + o.Max.U) / 2, (o.Min.V + o.Max.V) / 2, 0)
     Viewport.Create(doc, sheet.Id, new_view.Id, center)
 
-    t.Commit()
+    # ------------------------------------------
+    # 4) Create & place 3D callout
+    # ------------------------------------------
+    all3ds = FilteredElementCollector(doc).OfClass(ViewFamilyType).ToElements()
+    all3d_views = FilteredElementCollector(doc).OfClass(View3D).ToElements()
+    # 1. pick a 3D ViewFamilyType
+    prefix = "{} - Sheet".format(base)
+    existing_count = sum(1 for v in all3d_views if v.Name.startswith(prefix))
+
+    v3d_type = next(v for v in all3ds if v.ViewFamily == ViewFamily.ThreeDimensional)
+
+    # split off the last number of the base code
+    parts = base.split(".")
+    major = ".".join(parts[:-1])
+    last = int(parts[-1])
+    new_last = last + existing_count
+    sheet_suffix = "{}.{}".format(major, new_last)
+
+    # 2. create an isometric 3D view
+    view3d = View3D.CreateIsometric(doc, v3d_type.Id)
+    view3d.Name = "{} - Sheet {}".format(base, sheet_suffix)
+    # force it into the Architectural branch of the browser
+    view3d.Discipline = ViewDiscipline.Architectural
+    view3d.Scale = 25
+
+    # apply your A00_Algemeen 3D View Template
+    tmpl = next(
+        (v for v in all3d_views if v.IsTemplate and v.Name == "S4R_A00_Algemeen_3D"),
+        None,
+    )
+    if tmpl:
+        view3d.ViewTemplateId = tmpl.Id
+
+    param = view3d.get_Parameter(BuiltInParameter.VIEW_DISCIPLINE)
+    if not param.IsReadOnly:
+        param.Set(int(ViewDiscipline.Architectural))
+
+    # 3. use the same region bounding box you computed earlier
+    section_bb = BoundingBoxXYZ()
+    section_bb.Min = region_min
+    section_bb.Max = region_max
+    view3d.SetSectionBox(section_bb)
+
+    # 4. position the 3D viewport on the sheet (to the right of the floor plan)
+    o = sheet.Outline
+    # push it over 1/3 of the sheet width, and up a bit
+    u = o.Min.U + (o.Max.U - o.Min.U) * 0.65
+    v = o.Min.V + (o.Max.V - o.Min.V) * 0.35
+
+    Viewport.Create(doc, sheet.Id, view3d.Id, XYZ(u, v, 0))
+
+    t3.Commit()
