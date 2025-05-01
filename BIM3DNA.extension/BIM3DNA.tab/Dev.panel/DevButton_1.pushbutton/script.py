@@ -51,6 +51,7 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.UI import UIDocument
+from Autodesk.Revit.Exceptions import ArgumentException
 from System.Collections.Generic import List
 
 import clr
@@ -1127,7 +1128,16 @@ new_view.Scale = 25
 # naming, cropping, discipline etc...
 m = re.search(r"([\d\.]+)", result["TextNote"])
 base = m.group(1) if m else result["TextNote"].strip()  # "5.1.1"
-new_view.Name = base
+try:
+    new_view.Name = base
+except ArgumentException:
+    MessageBox.Show(
+        "A view named '{0}' already exists!\n\n"
+        "Please pick a different code in the text-node editor.".format(base),
+        "Duplicate View Name",
+    )
+    tx.RollBack()
+    sys.exit("Duplicate View Name")
 
 new_view.CropBoxActive = True
 new_view.CropBoxVisible = True
@@ -1201,7 +1211,12 @@ title_block = all_tbs[picker.lb.SelectedIndex]
 # b) for each base, only create if it’s not already on a sheet
 for base in {base}:  # e.g. 5.1.1
     if base in existing_numbers:
-        continue
+        MessageBox.Show(
+            "Sheet 'prefab {0}' already exists!\n\n"
+            "Please pick a different code in the text-note editor.".format(base),
+            "Duplicate Sheet",
+        )
+        sys.exit("Duplicate sheet number")
     t3 = Transaction(doc, "Create 3D callout")
     t3.Start()
     sheet = ViewSheet.Create(doc, title_block.Id)
