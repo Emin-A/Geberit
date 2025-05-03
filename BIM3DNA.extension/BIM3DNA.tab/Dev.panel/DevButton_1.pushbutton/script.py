@@ -52,10 +52,14 @@ from Autodesk.Revit.DB import (
     ParameterValueProvider,
     FilterStringRule,
     FilterStringRuleEvaluator,
+    FilterStringBeginsWith,
+    FilterStringContains,
+    FilterStringEquals,
     ParameterFilterElement,
     ScheduleSheetInstance,
     ScheduleFilter,
     ScheduleFilterType,
+    Category,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.UI import UIDocument
@@ -1332,9 +1336,12 @@ for master, idx in masters:
                 schedField = schedDef.AddField(sfield)
                 break
 
-    if schedField:
-        filt = ScheduleFilter(schedField.FieldId, ScheduleFilterType.Equal, sheetCode)
-        schedDef.AddFilter(filt)
+    if master == pipesMaster:
+        ftype = ScheduleFilterType.BeginsWith
+    else:
+        ftype = ScheduleFilterType.Equal
+    filt = ScheduleFilter(schedField.FieldId, ftype, sheetCode)
+    schedDef.AddFilter(filt)
 
     # Place the new schedule on the sheet
     uMin, uMax = sheet.Outline.Min.U, sheet.Outline.Max.U
