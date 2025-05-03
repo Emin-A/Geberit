@@ -45,9 +45,17 @@ from Autodesk.Revit.DB import (
     Reference,
     TagMode,
     TagOrientation,
+    ViewSchedule,
     ViewSheet,
     ViewDuplicateOption,
     ViewDiscipline,
+    ParameterValueProvider,
+    FilterStringRule,
+    FilterStringRuleEvaluator,
+    ParameterFilterElement,
+    ScheduleSheetInstance,
+    ScheduleFilter,
+    ScheduleFilterType,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from Autodesk.Revit.UI import UIDocument
@@ -67,6 +75,9 @@ clr.AddReference("RevitAPIUI")
 clr.AddReference("WindowsBase")
 from RevitServices.Persistence import DocumentManager
 from System.Windows.Forms import (
+    FormBorderStyle,
+    AnchorStyles,
+    AutoScaleMode,
     Form,
     ComboBox,
     ListBox,
@@ -74,7 +85,9 @@ from System.Windows.Forms import (
     PictureBoxSizeMode,
     DataGridView,
     DataGridViewTextBoxColumn,
+    DataGridViewButtonColumn,
     DataGridViewAutoSizeColumnsMode,
+    DockStyle,
     TextBox,
     Button,
     MessageBox,
@@ -1279,3 +1292,59 @@ for base in {base}:  # e.g. 5.1.1
     Viewport.Create(doc, sheet.Id, view3d.Id, XYZ(u, v, 0))
 
     t3.Commit()
+
+# ----------------------------------------
+# 5) DUPLICATE & FILTER GEBERIT SCHEDULES
+# ----------------------------------------
+allSchedules = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
+fittingsMaster = next(s for s in allSchedules if s.Name == "Geberit PE fittingen")
+pipesMaster = next(s for s in allSchedules if s.Name == "Geberit PE leidingen")
+
+t4 = Transaction(doc, "Duplicate & Filter Geberit Schedules")
+t4.Start()
+
+sheetCode = sheet.SheetNumber
+masters = [(fittingsMaster, 0), (pipesMaster, 1)]
+
+for master, idx in masters:
+    # 1. duplicate schedule
+    dupId = master.Duplicate(ViewDuplicateOption.Duplicate)
+    dup = doc.GetElement(dupId)
+    dup.Name = "{} {}".format(master.Name, sheetCode)
+
+    # 2. clear any existing schedule-level filters
+    schedDef = dup.Definition
+    for i in reversed(range(schedDef.GetFilterCount())):
+        schedDef.RemoveFilter(i)
+
+    targetParamId = ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+    schedField = None
+
+    for fldId in schedDef.GetFieldOrder():
+        sf = schedDef.GetField(fldId)
+        if sf.ParameterId == targetParamId:
+            schedField = sf
+            break
+
+    if not schedField:
+        for sfield in schedDef.GetSchedulableFields():
+            if sfield.ParameterId == targetParamId:
+                schedField = schedDef.AddField(sfield)
+                break
+
+    if schedField:
+        filt = ScheduleFilter(schedField.FieldId, ScheduleFilterType.Equal, sheetCode)
+        schedDef.AddFilter(filt)
+
+    # Place the new schedule on the sheet
+    uMin, uMax = sheet.Outline.Min.U, sheet.Outline.Max.U
+    vMin, vMax = sheet.Outline.Min.V, sheet.Outline.Max.V
+    w, h = (uMax - uMin), (vMax - vMin)
+
+    x = uMin + 0.05 * w
+    y = vMin + (0.05 + 0.3 * idx) * h
+    origin = XYZ(x, y, 0)
+
+    ScheduleSheetInstance.Create(doc, sheet.Id, dupId, origin)
+
+t4.Commit()
