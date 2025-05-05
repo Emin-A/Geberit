@@ -527,6 +527,8 @@ class ElementEditorForm(Form):
             MessageBox.Show("Could not parse base code from text note.", "Error")
             return
         base = m.group(1)  # e.g. "4.1.1"
+
+        # 2) (optional) keep prefix/base_n split if you want for pipes
         parts = base.split(".")
         if len(parts) >= 3:
             prefix = parts[0] + "." + parts[1]  # "4.1"
@@ -548,42 +550,9 @@ class ElementEditorForm(Form):
             elif cat == "Pipe Tags":
                 tag_rows.append(i)
 
-        # 3) Compute centers for fittings & cluster nested ones
-        fit_centers = []
+        # Override all Pipe Fittings rows to the base code
         for idx in fit_rows:
-            rid = int(str(self.dataGrid.Rows[idx].Cells["Id"].Value))
-            elem = doc.GetElement(ElementId(rid))
-            bbox = elem.get_BoundingBox(uidoc.ActiveView) or elem.get_BoundingBox(None)
-            if bbox:
-                ctr = XYZ(
-                    (bbox.Min.X + bbox.Max.X) * 0.5,
-                    (bbox.Min.Y + bbox.Max.Y) * 0.5,
-                    (bbox.Min.Z + bbox.Max.Z) * 0.5,
-                )
-            else:
-                ctr = XYZ(0, 0, 0)
-            fit_centers.append((idx, ctr))
-
-        clusters = []
-        tol = 0.01  # about 3 mm in model units — instead of 1e‑6
-        for idx, ctr in fit_centers:
-            placed = False
-            for cl in clusters:
-                # compare against the cluster’s first center
-                if abs(ctr.X - cl[0][1].X) < tol and abs(ctr.Y - cl[0][1].Y) < tol:
-                    cl.append((idx, ctr))
-                    placed = True
-                    break
-            if not placed:
-                clusters.append([(idx, ctr)])
-        # sort clusters left→right, down→up
-        clusters.sort(key=lambda c: (c[0][1].X, c[0][1].Y))
-
-        # 4) Number clusters starting at base_n + 0
-        for i, cl in enumerate(clusters):
-            code = prefix + "." + str(base_n + i)
-            for idx, _ in cl:
-                self.dataGrid.Rows[idx].Cells["NewCode"].Value = code
+            self.dataGrid.Rows[idx].Cells["NewCode"].Value = base
 
         # 5) Pipes sorted and numbered: full base + .1,.2...
         pipe_centers = []
@@ -603,15 +572,15 @@ class ElementEditorForm(Form):
 
         pipe_centers.sort(key=lambda x: (x[1].X, x[1].Y))
         for i, (idx, _) in enumerate(pipe_centers, 1):
-            code = base + "." + str(i)
-            self.dataGrid.Rows[idx].Cells["NewCode"].Value = code
+            self.dataGrid.Rows[idx].Cells["NewCode"].Value = "{}.{}".format(base, i)
 
         # 6) Mirror pipe numbering onto pipe‐tag rows (same count)
-        for i, (idx, _) in enumerate(pipe_centers, 1):
+        for i, _ in enumerate(pipe_centers, 1):
             if i - 1 < len(tag_rows):
                 trow = tag_rows[i - 1]
-                code = base + "." + str(i)
-                self.dataGrid.Rows[trow].Cells["NewCode"].Value = code
+                self.dataGrid.Rows[trow].Cells["NewCode"].Value = "{}.{}".format(
+                    base, i
+                )
 
     def dataGrid_CellContentClick(self, sender, e):
         col = self.dataGrid.Columns[e.ColumnIndex].Name
@@ -1064,6 +1033,11 @@ result = show_element_editor(filtered_elements, region_elements=gathered_element
 if result is None:
     sys.exit("Operation cancelled by the user.")
 
+baseCode = result["TextNote"]
+for eData in result["Elements"]:
+    if eData["Category"] == "Pipe Fittings":
+        eData["NewCode"] = baseCode
+
 # --- Renumber Pipes based on region order (sorted left-to-right, bottom-to-up) ---
 if not result.get("TextNotePlaced", False):
     base_raw = result.get("TextNote", "").strip()
@@ -1098,13 +1072,28 @@ if not result.get("TextNotePlaced", False):
 t = Transaction(doc, "Update Comments")
 t.Start()
 for eData in result["Elements"]:
-    if not eData["Id"] or str(eData["Id"]).lower() == "none":
+    # skip rows where Id is missing or not an integer
+    id_val = eData.get("Id")
+    try:
+        eid = int(str(id_val))
+    except (TypeError, ValueError):
         continue
-    elem = doc.GetElement(ElementId(int(str(eData["Id"]))))
-    if elem:
-        p = elem.LookupParameter("Comments")
-        if p and not p.IsReadOnly:
-            p.Set(str(eData["NewCode"]))
+
+    elem = doc.GetElement(ElementId(eid))
+    if not elem:
+        continue
+    # get the Comments parameter
+    p = elem.LookupParameter("Comments")
+    if not p or p.IsReadOnly:
+        continue
+
+    # if this is a fitting, force it to the base sheet code
+    if eData["Category"] == "Pipe Fittings":
+        # result ["TextNote"] holds exactly the text you placed e.g. "5.1.1"
+        p.Set(result["TextNote"])
+    else:
+        # pipes & tags keep their full NewCode
+        p.Set(str(eData["NewCode"]))
 t.Commit()
 
 # --- Place the text note if not already placed ---
@@ -1129,9 +1118,15 @@ if orig.ViewType != ViewType.FloorPlan:
     MessageBox.Show("Active view is not a Floor Plan!", "Error")
     sys.exit()
 
+# grab the original crop box transform so the region maps to the same coordinate system
+orig_bb = orig.CropBox
+orig_trans = orig_bb.Transform
+
 tx = Transaction(doc, "Create Cropped Plan View")
 tx.Start()
-new_id = orig.Duplicate(ViewDuplicateOption.Duplicate)
+
+# Duplicate With Detailing so all your pipe-tags (Independent Tag) come over
+new_id = orig.Duplicate(ViewDuplicateOption.WithDetailing)
 new_view = doc.GetElement(new_id)
 
 # remove any view template and set scale to 1:25
@@ -1139,7 +1134,6 @@ new_view.ViewTemplateId = ElementId.InvalidElementId
 
 # force it to Coordination
 new_view.Discipline = ViewDiscipline.Coordination
-
 new_view.Scale = 25
 
 # naming, cropping, discipline etc...
@@ -1155,12 +1149,14 @@ except ArgumentException:
     )
     tx.RollBack()
     sys.exit("Duplicate View Name")
-
-new_view.CropBoxActive = True
-new_view.CropBoxVisible = True
+# apply region crop using the same transform
 bb = BoundingBoxXYZ()
 bb.Min = region_min
 bb.Max = region_max
+bb.Transform = orig_trans
+
+new_view.CropBoxActive = True
+new_view.CropBoxVisible = True
 new_view.CropBox = bb
 
 tx.Commit()
