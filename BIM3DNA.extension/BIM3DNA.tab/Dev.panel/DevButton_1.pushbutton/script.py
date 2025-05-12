@@ -59,10 +59,17 @@ from Autodesk.Revit.DB import (
     ScheduleSheetInstance,
     ScheduleFilter,
     ScheduleFilterType,
+    ScheduleSortGroupField,
+    ScheduleSortOrder,
+    SectionType,
     Category,
 )
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
+from Autodesk.Revit.UI import *
 from Autodesk.Revit.UI import UIDocument
+from Autodesk.Revit.DB.Structure import *
+from Autodesk.Revit.Exceptions import *
+from Autodesk.Revit.Attributes import *
 from Autodesk.Revit.Exceptions import ArgumentException
 from System.Collections.Generic import List
 
@@ -1157,10 +1164,16 @@ bb.Transform = orig_trans
 
 new_view.CropBoxActive = True
 new_view.CropBoxVisible = True
+# new_view.CropBox = bb
+
+# turn on annotation crop
+annoParam = new_view.get_Parameter(BuiltInParameter.VIEWER_ANNOTATION_CROP_ACTIVE)
+if annoParam and not annoParam.IsReadOnly:
+    annoParam.Set(1)
+
 new_view.CropBox = bb
 
 tx.Commit()
-
 # -----------------------------------------
 # 2) SHOW TITLE-BLOCK PICKER, THEN CREATE SHEET
 # -----------------------------------------
@@ -1294,60 +1307,64 @@ for base in {base}:  # e.g. 5.1.1
     t3.Commit()
 
 # ----------------------------------------
-# 5) DUPLICATE & FILTER GEBERIT SCHEDULES
+# 5) DUPLICATE & PLACE GEBERIT SCHEDULES
 # ----------------------------------------
-allSchedules = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
-fittingsMaster = next(s for s in allSchedules if s.Name == "Geberit PE fittingen")
-pipesMaster = next(s for s in allSchedules if s.Name == "Geberit PE leidingen")
+all_Schedules = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
+fittings_master = next(s for s in all_Schedules if s.Name == "Geberit PE fittingen")
+pipes_master = next(s for s in all_Schedules if s.Name == "Geberit PE leidingen")
 
-t4 = Transaction(doc, "Duplicate & Filter Geberit Schedules")
-t4.Start()
+t = Transaction(doc, "Duplicate & Filter Geberit Schedules")
+t.Start()
 
-sheetCode = sheet.SheetNumber
-masters = [(fittingsMaster, 0), (pipesMaster, 1)]
+sheet_code = sheet.SheetNumber
+tasks = [
+    (fittings_master, False, 0),
+    (pipes_master, True, 1),
+]
 
-for master, idx in masters:
-    # 1. duplicate schedule
-    dupId = master.Duplicate(ViewDuplicateOption.Duplicate)
-    dup = doc.GetElement(dupId)
-    dup.Name = "{} {}".format(master.Name, sheetCode)
+for master, is_pipe, idx in tasks:
+    # --- duplicate & rename ---
+    dup_id = master.Duplicate(ViewDuplicateOption.Duplicate)
+    dup = doc.GetElement(dup_id)
+    dup.Name = "{} {}".format(master.Name, sheet_code)
 
-    # 2. clear any existing schedule-level filters
-    schedDef = dup.Definition
-    for i in reversed(range(schedDef.GetFilterCount())):
-        schedDef.RemoveFilter(i)
+    sd = dup.Definition
+    comments_param = ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
 
-    targetParamId = ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
-    schedField = None
-
-    for fldId in schedDef.GetFieldOrder():
-        sf = schedDef.GetField(fldId)
-        if sf.ParameterId == targetParamId:
-            schedField = sf
+    # --- find the schedule-field ID that corresponds to "Comments" ---
+    comment_field_id = None
+    for fld_id in sd.GetFieldOrder():
+        sf = sd.GetField(fld_id)
+        if sf.ParameterId == comments_param:
+            comment_field_id = sf.FieldId
             break
 
-    if not schedField:
-        for sfield in schedDef.GetSchedulableFields():
-            if sfield.ParameterId == targetParamId:
-                schedField = schedDef.AddField(sfield)
-                break
+    # if for some reason Comments isn't yet a column on the master,
+    # add it now so we can filter on it:
+    if comment_field_id is None:
+        cm_sched_field = next(
+            f for f in sd.GetSchedulableFields() if f.ParameterId == comments_param
+        )
+        sf = sd.AddField(cm_sched_field)
+        comment_field_id = sf.FieldId
 
-    if master == pipesMaster:
-        ftype = ScheduleFilterType.BeginsWith
-    else:
-        ftype = ScheduleFilterType.Equal
-    filt = ScheduleFilter(schedField.FieldId, ftype, sheetCode)
-    schedDef.AddFilter(filt)
+    # --- clear out any existing Comments-filters ---
+    for i in reversed(range(sd.GetFilterCount())):
+        f = sd.GetFilter(i)
+        if f.FieldId == comment_field_id:
+            sd.RemoveFilter(i)
 
-    # Place the new schedule on the sheet
+    # --- add the new filter (equals for fittings, contains for pipes) ---
+    ftype = ScheduleFilterType.Contains if is_pipe else ScheduleFilterType.Equal
+    sd.AddFilter(ScheduleFilter(comment_field_id, ftype, sheet_code))
+
+    # --- finally, place the schedule on the sheet ---
     uMin, uMax = sheet.Outline.Min.U, sheet.Outline.Max.U
     vMin, vMax = sheet.Outline.Min.V, sheet.Outline.Max.V
     w, h = (uMax - uMin), (vMax - vMin)
-
     x = uMin + 0.05 * w
     y = vMin + (0.05 + 0.3 * idx) * h
-    origin = XYZ(x, y, 0)
 
-    ScheduleSheetInstance.Create(doc, sheet.Id, dupId, origin)
+    ScheduleSheetInstance.Create(doc, sheet.Id, dup_id, XYZ(x, y, 0))
 
-t4.Commit()
+t.Commit()
