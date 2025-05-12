@@ -1358,6 +1358,9 @@ for master, is_pipe, idx in tasks:
     ftype = ScheduleFilterType.Contains if is_pipe else ScheduleFilterType.Equal
     sd.AddFilter(ScheduleFilter(comment_field_id, ftype, sheet_code))
 
+    # --- set Itemize Every Instance for pipes ---
+    sd.IsItemized = is_pipe
+
     # --- finally, place the schedule on the sheet ---
     uMin, uMax = sheet.Outline.Min.U, sheet.Outline.Max.U
     vMin, vMax = sheet.Outline.Min.V, sheet.Outline.Max.V
