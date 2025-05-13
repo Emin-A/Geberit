@@ -394,40 +394,56 @@ class ElementEditorForm(Form):
         self.colTagStatus.HeaderText = "Tags"
         self.colTagStatus.UseColumnTextForButtonValue = False
 
-        # Place Text Note
+        # --- BOTTOM BUTTONS PANEL ---
+        button_panel = System.Windows.Forms.Panel()
+        button_panel.Location = Point(10, 370)
+        button_panel.Size = Size(900, 40)
+        button_panel.Anchor = (
+            AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+        )
+        self.Controls.Add(button_panel)
+
+        # Place Text Note Button
         self.btnPlaceTextNote = Button()
         self.btnPlaceTextNote.Text = "Place Text Note"
-        self.btnPlaceTextNote.Location = Point(10, 370)
         self.btnPlaceTextNote.Width = 150
         self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
-        self.Controls.Add(self.btnPlaceTextNote)
+        button_panel.Controls.Add(self.btnPlaceTextNote)
 
+        # TextBox for Text Note
         self.txtTextNoteCode = TextBox()
-        self.txtTextNoteCode.Location = Point(170, 370)
         self.txtTextNoteCode.Width = 150
-        self.Controls.Add(self.txtTextNoteCode)
+        button_panel.Controls.Add(self.txtTextNoteCode)
 
-        # Auto‑fill
+        # Auto-Fill Button
         self.btnAutoFill = Button()
-        self.btnAutoFill.Text = "Auto-fill Pipe Tag Codes"
-        self.btnAutoFill.Location = Point(10, 410)
-        self.btnAutoFill.Width = 200
+        self.btnAutoFill.Text = "Auto-Fill Tag Codes"
+        self.btnAutoFill.Width = 150
         self.btnAutoFill.Click += self.autoFillPipeTagCodes
-        self.Controls.Add(self.btnAutoFill)
+        button_panel.Controls.Add(self.btnAutoFill)
 
-        # OK / Cancel
+        # OK Button
         self.btnOK = Button()
         self.btnOK.Text = "OK"
-        self.btnOK.Location = Point(600, 420)
+        self.btnOK.Width = 80
         self.btnOK.DialogResult = DialogResult.OK
         self.btnOK.Click += self.okButton_Click
-        self.Controls.Add(self.btnOK)
+        button_panel.Controls.Add(self.btnOK)
 
+        # Cancel Button
         self.btnCancel = Button()
         self.btnCancel.Text = "Cancel"
-        self.btnCancel.Location = Point(720, 420)
+        self.btnCancel.Width = 80
         self.btnCancel.DialogResult = DialogResult.Cancel
-        self.Controls.Add(self.btnCancel)
+        button_panel.Controls.Add(self.btnCancel)
+
+        # --- ALIGN BUTTONS NICELY ---
+        # Evenly distribute inside the panel
+        spacing = (button_panel.Width - (150 + 150 + 150 + 80 + 80)) // 6
+        x = spacing
+        for ctrl in button_panel.Controls:
+            ctrl.Location = Point(x, 5)
+            x += ctrl.Width + spacing
 
         self.textNotePlaced = False
         self.Result = None
@@ -467,7 +483,7 @@ class ElementEditorForm(Form):
             # TagStatus logic
             cat = ed["Category"]
             status = ed["TagStatus"]
-            if cat in ("Pipes", "Pipe Fittings"):
+            if cat in ("Pipes"):
                 # if there _is_ already a tag on this element, offer Remove
                 if status == "Yes":
                     row.Cells["TagStatus"].Value = "Remove Tag"
@@ -479,6 +495,11 @@ class ElementEditorForm(Form):
                 # always allow removal of the tag itself
                 row.Cells["TagStatus"].Value = "Remove Tag"
                 row.Cells["TagStatus"].ReadOnly = False
+
+            elif cat == "Pipe Fittings":
+                row.Cells["TagStatus"].Value = ""
+                row.Cells["TagStatus"].ReadOnly = "True"
+
             else:
                 row.Cells["TagStatus"].Value = ""
             if ed["Category"] == "Pipes":
