@@ -49,6 +49,7 @@ from Autodesk.Revit.DB import (
     ViewSheet,
     ViewDuplicateOption,
     ViewDiscipline,
+    Viewport,
     ParameterValueProvider,
     FilterStringRule,
     FilterStringRuleEvaluator,
@@ -1414,3 +1415,43 @@ for master, is_pipe, idx in tasks:
     ScheduleSheetInstance.Create(doc, sheet.Id, dup.Id, XYZ(x, y, 0))
 
 t.Commit()
+
+# ----------------------------------------
+# 6) CENTER PLAN VIEW, 3D VIEW, AND SCHEDULES ON THE SHEET
+# ----------------------------------------
+
+# Start a new transaction to move them
+move_tx = Transaction(doc, "Center Views and Schedules on Sheet")
+move_tx.Start()
+
+# 1. Calculate center of the sheet
+sheet_center = XYZ(
+    (sheet.Outline.Min.U + sheet.Outline.Max.U) / 2,
+    (sheet.Outline.Min.V + sheet.Outline.Max.V) / 2,
+    0,
+)
+
+# 2. Find all viewports on the sheet and center them
+viewports = FilteredElementCollector(doc, sheet.Id).OfClass(Viewport).ToElements()
+
+for vp in viewports:
+    vp.SetBoxCenter(sheet_center)
+
+# 3. Find all schedules on the sheet and center them nicely stacked
+schedules = (
+    FilteredElementCollector(doc, sheet.Id).OfClass(ScheduleSheetInstance).ToElements()
+)
+
+schedule_offset = 0.15  # Offset down between schedules (adjust if needed)
+normal_schedules = []
+
+for sch in schedules:
+    if sch.IsTitleblockRevisionSchedule:
+        continue
+    normal_schedules.append(sch)
+
+for idx, sch in enumerate(normal_schedules):
+    sch_point = XYZ(sheet_center.X, sheet_center.Y - (idx * schedule_offset), 0)
+    sch.Point = sch_point
+
+move_tx.Commit()
