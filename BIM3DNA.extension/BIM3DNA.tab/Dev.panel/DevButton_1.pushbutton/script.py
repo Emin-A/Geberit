@@ -32,6 +32,7 @@ from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB import (
     FamilySymbol,
     FilteredElementCollector,
+    FormatOptions,
     BuiltInCategory,
     BuiltInParameter,
     ElementId,
@@ -42,6 +43,7 @@ from Autodesk.Revit.DB import (
     TextNoteOptions,
     IndependentTag,
     UV,
+    UnitTypeId,
     Reference,
     TagMode,
     TagOrientation,
@@ -1372,6 +1374,17 @@ for master, is_pipe, idx in tasks:
     dup.Name = "{} {}".format(master.Name, sheet_code)
 
     sd = dup.Definition
+    # --- if it's a Leidingen (pipes) schedule, change Length field to millimeters ---
+    if is_pipe:
+        for f_id in sd.GetFieldOrder():
+            field = sd.GetField(f_id)
+            if field.GetName().lower().startswith("length"):
+                opts = field.GetFormatOptions()
+                opts.UseDefault = False
+                opts.SetUnitTypeId(UnitTypeId.Millimeters)
+                opts.Accuracy = 0.1
+                field.SetFormatOptions(opts)
+                break
     comments_param = ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
 
     # --- find the schedule-field ID that corresponds to "Comments" ---
