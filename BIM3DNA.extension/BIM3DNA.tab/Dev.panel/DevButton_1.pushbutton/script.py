@@ -1306,14 +1306,22 @@ for base in {base}:  # e.g. 5.1.1
 
     t3.Commit()
 
-# ----------------------------------------
-# 5) DUPLICATE & PLACE GEBERIT SCHEDULES
-# ----------------------------------------
-all_Schedules = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
-fittings_master = next(s for s in all_Schedules if s.Name == "Geberit PE fittingen")
-pipes_master = next(s for s in all_Schedules if s.Name == "Geberit PE leidingen")
 
-t = Transaction(doc, "Duplicate & Filter Geberit Schedules")
+# --- Helper function to find field by name
+def find_schedule_field_by_name(sd, field_name):
+    for f_id in sd.GetFieldOrder():
+        sf = sd.GetField(f_id)
+        if sf.GetName() == field_name:
+            return sf
+    raise Exception("Field not found: {}".format(field_name))
+
+
+# --- Main script
+all_schedules = FilteredElementCollector(doc).OfClass(ViewSchedule).ToElements()
+fittings_master = next(s for s in all_schedules if s.Name == "Geberit PE fittingen")
+pipes_master = next(s for s in all_schedules if s.Name == "Geberit PE leidingen")
+
+t = Transaction(doc, "Duplicate & Configure Geberit Schedules")
 t.Start()
 
 sheet_code = sheet.SheetNumber
@@ -1332,21 +1340,22 @@ for master, is_pipe, idx in tasks:
     comments_param = ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
 
     # --- find the schedule-field ID that corresponds to "Comments" ---
-    comment_field_id = None
-    for fld_id in sd.GetFieldOrder():
-        sf = sd.GetField(fld_id)
+    comment_field = None
+    for f_id in sd.GetFieldOrder():
+        sf = sd.GetField(f_id)
         if sf.ParameterId == comments_param:
-            comment_field_id = sf.FieldId
+            comment_field = sf
             break
 
-    # if for some reason Comments isn't yet a column on the master,
-    # add it now so we can filter on it:
-    if comment_field_id is None:
+    # If "Comments" column not found yet, add it
+    if comment_field is None:
         cm_sched_field = next(
             f for f in sd.GetSchedulableFields() if f.ParameterId == comments_param
         )
         sf = sd.AddField(cm_sched_field)
-        comment_field_id = sf.FieldId
+        comment_field = sf
+
+    comment_field_id = comment_field.FieldId
 
     # --- clear out any existing Comments-filters ---
     for i in reversed(range(sd.GetFilterCount())):
@@ -1354,20 +1363,54 @@ for master, is_pipe, idx in tasks:
         if f.FieldId == comment_field_id:
             sd.RemoveFilter(i)
 
-    # --- add the new filter (equals for fittings, contains for pipes) ---
-    ftype = ScheduleFilterType.Contains if is_pipe else ScheduleFilterType.Equal
+    # --- add the new filter (Contains for both pipes and fittings now) ---
+    ftype = ScheduleFilterType.Contains
     sd.AddFilter(ScheduleFilter(comment_field_id, ftype, sheet_code))
 
-    # --- set Itemize Every Instance for pipes ---
-    sd.IsItemized = is_pipe
+    # --- clear sort fields safely
+    for i in reversed(range(sd.GetSortGroupFieldCount())):
+        sd.RemoveSortGroupField(i)
 
-    # --- finally, place the schedule on the sheet ---
+    # --- add correct sorting based on schedule type
+    if is_pipe:
+        # Leidingen sorting
+        seg_field = find_schedule_field_by_name(sd, "Segment Description")
+        art_field = find_schedule_field_by_name(sd, "Article Nr")
+        od_field = find_schedule_field_by_name(sd, "Outside Diameter")
+
+        grp1 = ScheduleSortGroupField(seg_field.FieldId, ScheduleSortOrder.Ascending)
+        grp1.ShowHeader = True
+        sd.AddSortGroupField(grp1)
+
+        grp2 = ScheduleSortGroupField(art_field.FieldId, ScheduleSortOrder.Ascending)
+        sd.AddSortGroupField(grp2)
+
+        grp3 = ScheduleSortGroupField(od_field.FieldId, ScheduleSortOrder.Ascending)
+        sd.AddSortGroupField(grp3)
+
+        dup.Definition.IsItemized = True
+
+    else:
+        # Fittingen sorting
+        cm_field = find_schedule_field_by_name(sd, "Comments")
+        prod_field = find_schedule_field_by_name(sd, "NLRS_C_code_fabrikant_product")
+
+        grp1 = ScheduleSortGroupField(cm_field.FieldId, ScheduleSortOrder.Ascending)
+        grp1.ShowHeader = True
+        sd.AddSortGroupField(grp1)
+
+        grp2 = ScheduleSortGroupField(prod_field.FieldId, ScheduleSortOrder.Ascending)
+        sd.AddSortGroupField(grp2)
+
+        dup.Definition.IsItemized = False
+
+    # --- place the schedule on the sheet
     uMin, uMax = sheet.Outline.Min.U, sheet.Outline.Max.U
     vMin, vMax = sheet.Outline.Min.V, sheet.Outline.Max.V
     w, h = (uMax - uMin), (vMax - vMin)
     x = uMin + 0.05 * w
     y = vMin + (0.05 + 0.3 * idx) * h
 
-    ScheduleSheetInstance.Create(doc, sheet.Id, dup_id, XYZ(x, y, 0))
+    ScheduleSheetInstance.Create(doc, sheet.Id, dup.Id, XYZ(x, y, 0))
 
 t.Commit()
