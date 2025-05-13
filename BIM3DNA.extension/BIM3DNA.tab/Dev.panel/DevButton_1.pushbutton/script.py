@@ -341,114 +341,79 @@ class ElementEditorForm(Form):
         self.Text = "Edit Element Codes"
         self.Width = 950
         self.Height = 500
+        self.MinimumSize = Size(700, 400)
+        self.SuspendLayout()
         self.regionElements = region_elements
+
+        # --- 1. Bottom Buttons Panel FIRST
+        self.buttonPanel = System.Windows.Forms.Panel()
+        self.buttonPanel.Height = 50
+        self.buttonPanel.Dock = DockStyle.Bottom
+        self.Controls.Add(self.buttonPanel)
+
+        # --- 2. Panel for the DataGridView SECOND
+        self.gridPanel = System.Windows.Forms.Panel()
+        self.gridPanel.Dock = DockStyle.Fill
+        self.Controls.Add(self.gridPanel)
 
         self.dataGrid = DataGridView()
         self.dataGrid.SelectionChanged += self.on_row_selected
-        self.dataGrid.Location = Point(10, 10)
-        self.dataGrid.Size = Size(900, 350)
+        self.dataGrid.Dock = DockStyle.Fill
         self.dataGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
         self.dataGrid.CellContentClick += self.dataGrid_CellContentClick
-        self.Controls.Add(self.dataGrid)
+        self.gridPanel.Controls.Add(self.dataGrid)
 
-        # Columns
+        # --- 3. Columns
         self.colId = DataGridViewTextBoxColumn()
         self.colId.Name = "Id"
         self.colId.HeaderText = "Element Id"
         self.colId.ReadOnly = True
+
         self.colCategory = DataGridViewTextBoxColumn()
         self.colCategory.Name = "Category"
         self.colCategory.HeaderText = "Category"
         self.colCategory.ReadOnly = True
+
         self.colName = DataGridViewTextBoxColumn()
         self.colName.Name = "Name"
         self.colName.HeaderText = "Name"
         self.colName.ReadOnly = True
-        self.colArticle = DataGridViewTextBoxColumn()
-        self.colArticle.Name = "GEB_Article_Number"
-        self.colArticle.HeaderText = "GEB Article No."
-        self.colArticle.ReadOnly = True
+
         self.colDefaultCode = DataGridViewTextBoxColumn()
         self.colDefaultCode.Name = "DefaultCode"
         self.colDefaultCode.HeaderText = "Default Code"
         self.colDefaultCode.ReadOnly = True
+
         self.colNewCode = DataGridViewTextBoxColumn()
         self.colNewCode.Name = "NewCode"
         self.colNewCode.HeaderText = "New Code"
         self.colNewCode.ReadOnly = False
+
         self.colOD = DataGridViewTextBoxColumn()
         self.colOD.Name = "OutsideDiameter"
         self.colOD.HeaderText = "Outside Diameter"
         self.colOD.ReadOnly = True
+
         self.colLength = DataGridViewTextBoxColumn()
         self.colLength.Name = "Length"
         self.colLength.HeaderText = "Length"
         self.colLength.ReadOnly = True
+
         self.colSize = DataGridViewTextBoxColumn()
         self.colSize.Name = "Size"
         self.colSize.HeaderText = "Size"
         self.colSize.ReadOnly = True
+
+        self.colArticle = DataGridViewTextBoxColumn()
+        self.colArticle.Name = "GEB_Article_Number"
+        self.colArticle.HeaderText = "GEB Article No."
+        self.colArticle.ReadOnly = True
 
         self.colTagStatus = DataGridViewButtonColumn()
         self.colTagStatus.Name = "TagStatus"
         self.colTagStatus.HeaderText = "Tags"
         self.colTagStatus.UseColumnTextForButtonValue = False
 
-        # --- BOTTOM BUTTONS PANEL ---
-        button_panel = System.Windows.Forms.Panel()
-        button_panel.Location = Point(10, 370)
-        button_panel.Size = Size(900, 40)
-        button_panel.Anchor = (
-            AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
-        )
-        self.Controls.Add(button_panel)
-
-        # Place Text Note Button
-        self.btnPlaceTextNote = Button()
-        self.btnPlaceTextNote.Text = "Place Text Note"
-        self.btnPlaceTextNote.Width = 150
-        self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
-        button_panel.Controls.Add(self.btnPlaceTextNote)
-
-        # TextBox for Text Note
-        self.txtTextNoteCode = TextBox()
-        self.txtTextNoteCode.Width = 150
-        button_panel.Controls.Add(self.txtTextNoteCode)
-
-        # Auto-Fill Button
-        self.btnAutoFill = Button()
-        self.btnAutoFill.Text = "Auto-Fill Tag Codes"
-        self.btnAutoFill.Width = 150
-        self.btnAutoFill.Click += self.autoFillPipeTagCodes
-        button_panel.Controls.Add(self.btnAutoFill)
-
-        # OK Button
-        self.btnOK = Button()
-        self.btnOK.Text = "OK"
-        self.btnOK.Width = 80
-        self.btnOK.DialogResult = DialogResult.OK
-        self.btnOK.Click += self.okButton_Click
-        button_panel.Controls.Add(self.btnOK)
-
-        # Cancel Button
-        self.btnCancel = Button()
-        self.btnCancel.Text = "Cancel"
-        self.btnCancel.Width = 80
-        self.btnCancel.DialogResult = DialogResult.Cancel
-        button_panel.Controls.Add(self.btnCancel)
-
-        # --- ALIGN BUTTONS NICELY ---
-        # Evenly distribute inside the panel
-        spacing = (button_panel.Width - (150 + 150 + 150 + 80 + 80)) // 6
-        x = spacing
-        for ctrl in button_panel.Controls:
-            ctrl.Location = Point(x, 5)
-            x += ctrl.Width + spacing
-
-        self.textNotePlaced = False
-        self.Result = None
-
-        # Add columns
         self.dataGrid.Columns.AddRange(
             Array[DataGridViewTextBoxColumn](
                 [
@@ -466,7 +431,50 @@ class ElementEditorForm(Form):
         self.dataGrid.Columns.Add(self.colArticle)
         self.dataGrid.Columns.Add(self.colTagStatus)
 
-        # Populate rows
+        # --- 4. Buttons inside buttonPanel
+        self.btnPlaceTextNote = Button()
+        self.btnPlaceTextNote.Text = "Place Text Note"
+        self.btnPlaceTextNote.Width = 150
+        self.btnPlaceTextNote.Click += self.btnPlaceTextNote_Click
+        self.buttonPanel.Controls.Add(self.btnPlaceTextNote)
+
+        self.txtTextNoteCode = TextBox()
+        self.txtTextNoteCode.Width = 150
+        self.buttonPanel.Controls.Add(self.txtTextNoteCode)
+
+        self.btnAutoFill = Button()
+        self.btnAutoFill.Text = "Auto-Fill Tag Codes"
+        self.btnAutoFill.Width = 150
+        self.btnAutoFill.Click += self.autoFillPipeTagCodes
+        self.buttonPanel.Controls.Add(self.btnAutoFill)
+
+        self.btnOK = Button()
+        self.btnOK.Text = "OK"
+        self.btnOK.Width = 80
+        self.btnOK.DialogResult = DialogResult.OK
+        self.btnOK.Click += self.okButton_Click
+        self.buttonPanel.Controls.Add(self.btnOK)
+
+        self.btnCancel = Button()
+        self.btnCancel.Text = "Cancel"
+        self.btnCancel.Width = 80
+        self.btnCancel.DialogResult = DialogResult.Cancel
+        self.buttonPanel.Controls.Add(self.btnCancel)
+
+        # --- 5. Smart Button Alignment
+        self.buttonPanel.Resize += self.rearrange_buttons
+
+        self.ResumeLayout(False)
+        self.PerformLayout()
+        self.buttonPanel.PerformLayout()
+        self.gridPanel.PerformLayout()
+        self.dataGrid.PerformLayout()
+
+        # --- 6. State
+        self.textNotePlaced = False
+        self.Result = None
+
+        # --- 7. Populate Rows
         for ed in elements_data:
             row_idx = self.dataGrid.Rows.Add()
             row = self.dataGrid.Rows[row_idx]
@@ -483,33 +491,38 @@ class ElementEditorForm(Form):
             # TagStatus logic
             cat = ed["Category"]
             status = ed["TagStatus"]
-            if cat in ("Pipes"):
-                # if there _is_ already a tag on this element, offer Remove
+            if cat == "Pipes":
                 if status == "Yes":
                     row.Cells["TagStatus"].Value = "Remove Tag"
-                    row.Cells["TagStatus"].ReadOnly = False
                 else:
                     row.Cells["TagStatus"].Value = "Add/Place Tag"
-                    row.Cells["TagStatus"].ReadOnly = False
             elif cat == "Pipe Tags":
-                # always allow removal of the tag itself
                 row.Cells["TagStatus"].Value = "Remove Tag"
-                row.Cells["TagStatus"].ReadOnly = False
-
             elif cat == "Pipe Fittings":
                 row.Cells["TagStatus"].Value = ""
-                row.Cells["TagStatus"].ReadOnly = "True"
-
+                row.Cells["TagStatus"].ReadOnly = True
             else:
                 row.Cells["TagStatus"].Value = ""
-            if ed["Category"] == "Pipes":
+
+            if cat == "Pipes":
                 row.DefaultCellStyle.BackColor = Color.LightBlue
-            elif ed["Category"] == "Pipe Tags":
+            elif cat == "Pipe Tags":
                 row.DefaultCellStyle.BackColor = Color.LightGreen
-            elif ed["Category"] == "Pipe Fittings":
+            elif cat == "Pipe Fittings":
                 row.DefaultCellStyle.BackColor = Color.LightGoldenrodYellow
-            elif ed["Category"] == "Text Notes":
+            elif cat == "Text Notes":
                 row.DefaultCellStyle.BackColor = Color.LightGray
+
+    # Smart dynamic spacing
+    def rearrange_buttons(self, sender, event):
+        controls = list(self.buttonPanel.Controls)
+        total_width = sum(c.Width for c in controls)
+        available = self.buttonPanel.Width - total_width
+        spacing = max(10, available // (len(controls) + 1))
+        x = spacing
+        for ctrl in controls:
+            ctrl.Location = Point(x, (self.buttonPanel.Height - ctrl.Height) // 2)
+            x += ctrl.Width + spacing
 
     def _add_row(self, data):
         """Helper to append a new DataGridView row from a dict."""
